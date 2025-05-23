@@ -1,15 +1,36 @@
-import uvicorn
+# main.py
+# Точка входа FastAPI приложения. Создает приложение, конфигурирует подключение к БД, включает все маршруты и запускает.
+import os
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from routes import iap, apple_webhook, usage
+from models import models
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from src import config
 
-from src.api.routes import router as iap_router
-from src.apple.webhook import webhook_router  # separate router for Apple hooks
+engine = create_async_engine(config.DatabaseConfig.url, future=True, echo=False)
+# Создаем фабрику сессий для Dependency Injection
+AsyncSessionLocal = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
-app = FastAPI()
-app.include_router(iap_router, prefix="/api")
-app.include_router(webhook_router)  # absolute path already includes /apple
+# Dependency для получения сессии
+async def get_db_session():
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            yield session
+            # Коммит/ролбэк произойдет автоматически по выходу
 
-# Run with:  uvicorn src.main:app --host 0.0.0.0 --port 8000
+app = FastAPI(title="IAP Subscription & Credits API")
 
+# Разрешим CORS для клиентского приложения (если требуется)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# Подключаем роутеры
+app.include_router(iap.iap_router)
+app.include_router(usage.usage_router)
+app.include_router(apple_webhook.apple_router)

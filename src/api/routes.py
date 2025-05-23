@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from apple.client import verify_transaction
 from src.db.session import get_session
-from src.schemas import ValidateRequest
+from schemas_old import ValidateRequest
 from src.service.entitlements import grant_entitlements
 
 router = APIRouter()

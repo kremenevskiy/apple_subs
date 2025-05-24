@@ -1,24 +1,27 @@
-# routes/apple_webhook.py
-# FastAPI роутер для обработки серверных уведомлений Apple о событиях подписок.
-# Apple будет посылать POST-запросы на этот эндпоинт с JWT, содержащим информацию о событии.
-from fastapi import APIRouter, Header, Depends
-from starlette.responses import Response
-from sqlalchemy.ext.asyncio import AsyncSession
-from services.apple_service import handle_apple_notification
+# app/routes/apple_webhook.py
+from fastapi import APIRouter, Request
+from src.services import appstore_notifications
 
-apple_router = APIRouter(prefix="/apple/iap")
+apple_router = APIRouter()
 
-@apple_router.post("/webhook")
-async def apple_webhook_handler(
-    request_body: str = Depends(lambda: ""),  # предположим, raw body можно получить как строку
-    # В реальных условиях, FastAPI не дает напрямую raw body через Depends, пришлось бы использовать request.stream().
-    # Здесь упрощенно: request_body это весь JWT.
-    session: AsyncSession = Depends(get_db_session)
-):
-    """Получает уведомление от App Store (JWT строкой), верифицирует и обрабатывает его."""
-    signed_payload = request_body  # JWT уведомления
-    # Верифицируем источник по IP или header подписи (в App Store Notifications v2 можно проверять подпись JWT)
-    # Передадим обработку в сервис
-    await handle_apple_notification(signed_payload, session)
-    # Возвращаем пустой 200 OK, что означает успешное принятие (Apple это ожидает)
-    return Response(status_code=200)
+@apple_router.post("/apple/iap/webhook", status_code=200)
+async def apple_notifications_webhook(request: Request):
+    """
+    Webhook endpoint receiving App Store Server Notifications (V2).
+    """
+    body = await request.json()
+    signed_payload = body.get("signedPayload")
+    if not signed_payload:
+        # Apple должно всегда присылать signedPayload
+        return {"status": "error", "message": "No payload"}, 400
+    try:
+        # Декодируем и проверяем уведомление
+        notification = appstore_notifications.decode_notification(signed_payload)
+    except Exception as e:
+        # Если подпись не верифицирована или другой сбой - логируем, отвечаем 400 (Apple повторит позже)
+        print(f"Notification verify failed: {e}")
+        return {"status": "error", "message": "Invalid signature"}, 400
+    # Теперь у нас есть notification (объект или dict) с полями типа, сабтипа, данные
+    await appstore_notifications.handle_notification(notification)
+    # Возвращаем 200 OK чтобы Apple не повторял
+    return {"status": "ok"}

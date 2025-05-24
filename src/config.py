@@ -19,3 +19,9 @@ class AppleConfig:
 @dataclass(frozen=True)
 class DatabaseConfig:
     url: str = os.environ["DATABASE_URL"]
+
+
+@dataclass(frozen=True)
+class JWTConfig:
+    secret: str = os.environ["JWT_SECRET"]
+    algorithm: str = os.environ["JWT_ALGORITHM"]

@@ -2,6 +2,7 @@
 import httpx, jwt
 from jwt import PyJWKClient
 
+
 APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
 APPLE_AUDIENCE = "com.myapp.ios"  # Bundle ID приложения (или Service ID для веб-приложения)
 APPLE_ISS = "https://appleid.apple.com"

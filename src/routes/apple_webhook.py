@@ -1,27 +1,25 @@
 # app/routes/apple_webhook.py
-from fastapi import APIRouter, Request
-from src.services import appstore_notifications
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.config import settings, get_db
+from src.external import apple_verifier
+from src.services import subscription_service
 
-apple_router = APIRouter()
+router = APIRouter(tags=["apple"])
 
-@apple_router.post("/apple/iap/webhook", status_code=200)
-async def apple_notifications_webhook(request: Request):
-    """
-    Webhook endpoint receiving App Store Server Notifications (V2).
-    """
-    body = await request.json()
-    signed_payload = body.get("signedPayload")
+@router.post("/apple/iap/webhook", status_code=200)
+async def apple_iap_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    # Получаем JSON тело от Apple (содержит signedPayload)
+    data = await request.json()
+    signed_payload = data.get("signedPayload")
     if not signed_payload:
-        # Apple должно всегда присылать signedPayload
-        return {"status": "error", "message": "No payload"}, 400
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    # Проверяем подпись и декодируем уведомление
     try:
-        # Декодируем и проверяем уведомление
-        notification = appstore_notifications.decode_notification(signed_payload)
-    except Exception as e:
-        # Если подпись не верифицирована или другой сбой - логируем, отвечаем 400 (Apple повторит позже)
-        print(f"Notification verify failed: {e}")
-        return {"status": "error", "message": "Invalid signature"}, 400
-    # Теперь у нас есть notification (объект или dict) с полями типа, сабтипа, данные
-    await appstore_notifications.handle_notification(notification)
-    # Возвращаем 200 OK чтобы Apple не повторял
+        notification = apple_verifier.verify_app_store_notification(signed_payload, settings.APPLE_ROOT_CERT_PATH)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid notification signature")
+    # Обрабатываем уведомление: обновляем подписку/покупки пользователя
+    await subscription_service.process_app_store_notification(db, notification)
+    # Возвращаем 200 OK для подтверждения
     return {"status": "ok"}

@@ -1,44 +1,50 @@
-# models/models.py
-# Этот файл содержит определения ORM-моделей (таблиц) для пользователей, подписок, кредитов и транзакций.
-# Используется SQLAlchemy (AsyncIO) для определения схемы базы данных PostgreSQL.
-# Каждая модель отражает соответствующую таблицу в БД, с отношениями между пользователем, подпиской и кредитами.
-
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, BigInteger
-from sqlalchemy.orm import declarative_base, relationship
+# app/models/models.py
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
 Base = declarative_base()
 
 class User(Base):
-    """Модель пользователя: хранит информацию о пользователе и текущем балансе кредитов."""
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
-    # В реальном приложении можно добавить поля email, etc.
-    credit_balance = Column(Integer, default=0)  # текущий баланс кредитов пользователя
-    # Отношения: один пользователь имеет одну активную (или последнюю) подписку
-    subscription = relationship("Subscription", back_populates="user", uselist=False)
-    credit_transactions = relationship("CreditTransaction", back_populates="user")
+    email = Column(String, nullable=True)
+    apple_sub = Column(String, unique=True, index=True)            # Apple уникальный идентификатор пользователя (sub)
+    app_account_token = Column(String, unique=True, index=True)    # Токен для связи транзакций App Store с пользователем
+    credits = Column(Integer, default=0)
+    models = Column(Integer, default=0)
+    subscription_status = Column(String, default="inactive")
+    subscription_expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-class Subscription(Base):
-    """Модель подписки: хранит текущее состояние подписки пользователя."""
-    __tablename__ = "subscriptions"
+    transactions = relationship("Transaction", back_populates="user")
+
+
+class Product(Base):
+    __tablename__ = "products"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True)
-    apple_product_id = Column(String, nullable=False)        # идентификатор продукта подписки (из App Store)
-    original_transaction_id = Column(String, unique=True)    # оригинальный ID транзакции подписки (для связки с Apple)
-    is_active = Column(Boolean, default=True)                # флаг активной подписки
-    expiration_date = Column(DateTime, nullable=True)        # дата окончания текущего оплаченного периода
-    grace_until = Column(DateTime, nullable=True)            # дата окончания периода grace (30 дней после отмены)
-    user = relationship("User", back_populates="subscription")
+    product_id = Column(String, unique=True, index=True)  # Идентификатор продукта в App Store (например, com.app.product)
+    type = Column(String)      # "subscription", "credits", или "model"
+    credits_count = Column(Integer, nullable=True)
+    models_count = Column(Integer, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-class CreditTransaction(Base):
-    """Модель транзакции кредитов: история начислений и списаний кредитов пользователя."""
-    __tablename__ = "credit_transactions"
+    transactions = relationship("Transaction", back_populates="product")
+
+
+class Transaction(Base):
+    __tablename__ = "transactions"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    change = Column(Integer, nullable=False)      # изменение баланса: положительное (начисление) или отрицательное (списание)
-    reason = Column(String, nullable=False)       # причина изменения (например, 'purchase', 'renewal', 'generation', 'model_creation', 'refund')
-    related_product_id = Column(String, nullable=True)  # ID продукта (подписки или пакета), если применимо
-    related_transaction_id = Column(String, nullable=True)  # ID транзакции Apple, если применимо
-    timestamp = Column(DateTime, default=datetime.utcnow)
-    user = relationship("User", back_populates="credit_transactions")
+    product_id = Column(Integer, ForeignKey("products.id"))
+    transaction_id = Column(String, unique=True, index=True)          # Идентификатор транзакции Apple (transactionId)
+    original_transaction_id = Column(String, nullable=True)           # Оригинальный идентификатор транзакции Apple для подписок
+    type = Column(String)                                             # Например, "PURCHASE", "RENEWAL", "EXPIRED"
+    quantity = Column(Integer, default=1)
+    purchase_date = Column(DateTime, nullable=True)
+    raw_data = Column(Text)                                           # Полные сырые данные (JSON или receipt)
+
+    user = relationship("User", back_populates="transactions")
+    product = relationship("Product", back_populates="transactions")
